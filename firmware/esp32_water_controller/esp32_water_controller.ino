@@ -31,6 +31,8 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <time.h>
+#include <NewPing.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  ▸ USER-CONFIGURABLE CONSTANTS
@@ -50,11 +52,11 @@ constexpr uint8_t ECHO_PIN          = 18;   // HC-SR04 echo
 constexpr uint8_t FLOW_SENSOR_PIN   = 19;   // YF-S201 pulse output (interrupt-capable)
 constexpr uint8_t PRESSURE_PIN      = 34;   // ADC1 – analog pressure sensor
 constexpr uint8_t CURRENT_PIN       = 35;   // ADC1 – ACS712 current sensor
-constexpr uint8_t PUMP_RELAY_PIN    = 26;   // Relay IN (active HIGH)
+constexpr uint8_t PUMP_RELAY_PIN    = 2;    // Relay IN (active HIGH)
 
 // ── Tank Geometry ────────────────────────────────────────────────────────────
-const float EMPTY_DIST_CM  = 30.0f;   // cm from sensor to water surface when tank is EMPTY
-const float FULL_DIST_CM   =  5.0f;   // cm from sensor to water surface when tank is FULL
+const float EMPTY_DIST_CM  = 15.0f;   // cm from sensor to water surface when tank is EMPTY
+const float FULL_DIST_CM   =  7.0f;   // cm from sensor to water surface when tank is FULL
 const float MIN_VALID_DIST =  2.0f;   // below this → sensor in water or blocked (invalid)
 const float MAX_VALID_DIST = 400.0f;  // HC-SR04 practical max
 
@@ -89,7 +91,6 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS =  15000UL;
 constexpr unsigned long PULSIN_TIMEOUT_US   =  30000UL; // 30 ms ≈ 5 m range
 
 // ── Ultrasonic Median Filter ──────────────────────────────────────────────────
-constexpr uint8_t ULTRASONIC_SAMPLES = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  State Machine Definition
@@ -122,6 +123,8 @@ enum class OperatingMode : uint8_t {
     AUTO   = 0,
     MANUAL = 1
 };
+
+NewPing sonar(TRIG_PIN, ECHO_PIN, static_cast<unsigned int>(MAX_VALID_DIST));
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Fault Code Definitions
@@ -194,6 +197,7 @@ void        maintainWiFiConnection();
 void        sendTelemetry();
 void        fetchPendingCommands();
 void        acknowledgeCommand(const String& commandId, bool success, const String& msg);
+String      getTimestamp();
 const char* stateToString(ControllerState s);
 const char* modeToString(OperatingMode m);
 void        sortFloatArray(float* arr, uint8_t len);
@@ -220,6 +224,7 @@ void setup() {
     delay(500);  // allow serial to stabilise
     Serial.println(F("\n[BOOT] Smart Water Controller v1.0.0"));
     Serial.printf("[BOOT] Device ID: %s\n", DEVICE_ID);
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
 
     // ── GPIO config ──────────────────────────────────────────────────────────
     pinMode(TRIG_PIN,        OUTPUT);
@@ -302,63 +307,13 @@ void loop() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * @brief Read HC-SR04 distance using a 5-sample median filter.
- *
- * @details
- *   - Sends a 10 µs trigger pulse.
- *   - Waits for echo with pulseIn (30 ms timeout ≈ 5 m).
- *   - Converts echo duration to centimetres (speed of sound ≈ 0.01715 cm/µs).
- *   - Collects ULTRASONIC_SAMPLES readings, sorts them, returns the median.
- *   - Returns -1.0 if all samples time out or produce zero readings.
+ * @brief Read the HC-SR04 distance using NewPing.
  *
  * @return Median distance in centimetres, or -1 on failure.
  */
 float readUltrasonicDistance() {
-    float samples[ULTRASONIC_SAMPLES];
-    uint8_t validCount = 0;
-
-    for (uint8_t i = 0; i < ULTRASONIC_SAMPLES; i++) {
-        // Ensure TRIG is LOW before the pulse
-        digitalWrite(TRIG_PIN, LOW);
-        delayMicroseconds(2);
-
-        // 10 µs HIGH pulse triggers measurement
-        digitalWrite(TRIG_PIN, HIGH);
-        delayMicroseconds(10);
-        digitalWrite(TRIG_PIN, LOW);
-
-        // pulseIn returns 0 on timeout
-        unsigned long duration = pulseIn(ECHO_PIN, HIGH, PULSIN_TIMEOUT_US);
-
-        if (duration == 0) {
-            // Timeout – skip this sample
-            delay(10);  // brief pause before next sample
-            continue;
-        }
-
-        // Distance (cm) = duration (µs) × speed_of_sound / 2
-        // speed of sound ≈ 343 m/s = 0.0343 cm/µs → ÷2 = 0.01715
-        float dist = (float)duration * 0.01715f;
-
-        if (dist > 0.0f) {
-            samples[validCount++] = dist;
-        }
-        delay(10);  // small inter-sample delay to avoid echo overlap
-    }
-
-    if (validCount == 0) {
-        return -1.0f;  // all samples failed
-    }
-
-    // Sort valid samples ascending
-    sortFloatArray(samples, validCount);
-
-    // Return median
-    if (validCount % 2 == 0) {
-        return (samples[validCount / 2 - 1] + samples[validCount / 2]) / 2.0f;
-    } else {
-        return samples[validCount / 2];
-    }
+    const unsigned int distance = sonar.ping_cm();
+    return distance == 0 ? -1.0f : static_cast<float>(distance);
 }
 
 /**
@@ -710,23 +665,17 @@ void maintainWiFiConnection() {
  *   operator sees real-time sensor data.
  */
 void sendTelemetry() {
-    // Build ISO8601-like timestamp from millis (approximate; no RTC fitted)
-    // In production, integrate with NTP via configTime().
-    char timestamp[32];
-    unsigned long ms  = millis();
-    unsigned long sec = ms / 1000;
-    snprintf(timestamp, sizeof(timestamp),
-             "uptime+%lu.%03lus", sec, ms % 1000);
-
     // ── JSON document ─────────────────────────────────────────────────────────
     StaticJsonDocument<512> doc;
     doc["device_id"]        = DEVICE_ID;
-    doc["timestamp"]        = timestamp;
-    doc["tank_distance_cm"] = serialized(String(g_tankDistanceCm, 1));
-    doc["tank_level_percent"] = serialized(String(g_tankLevelPct,  1));
-    doc["flow_rate_lpm"]    = serialized(String(g_flowRateLpm,    2));
-    doc["pressure_bar"]     = serialized(String(g_pressureBar,    2));
-    doc["pump_current_a"]   = serialized(String(g_pumpCurrentA,   2));
+    doc["timestamp"]        = getTimestamp();
+    doc["tank_distance_cm"] = g_tankDistanceCm;
+    if (g_tankLevelPct >= 0.0f) {
+        doc["tank_level_percent"] = g_tankLevelPct;
+    }
+    doc["flow_rate_lpm"]    = g_flowRateLpm;
+    doc["pressure_bar"]     = g_pressureBar;
+    doc["pump_current_a"]   = g_pumpCurrentA;
     doc["pump_on"]          = g_pumpOn;
     doc["mode"]             = modeToString(g_mode);
     doc["controller_state"] = stateToString(g_state);
@@ -771,7 +720,7 @@ void sendTelemetry() {
  * @brief Poll backend for pending commands and execute them.
  *
  * @details
- *   GET /api/v1/commands/pending?device_id=<DEVICE_ID>
+ *   GET /api/v1/devices/<DEVICE_ID>/commands/pending
  *   Expected response: JSON array of command objects.
  *   Supported commands:
  *     "pump_on"      – MANUAL mode: turn pump ON
@@ -783,7 +732,7 @@ void sendTelemetry() {
  */
 void fetchPendingCommands() {
     String url = String(BACKEND_URL) +
-                 "/api/v1/commands/pending?device_id=" + String(DEVICE_ID);
+                 "/api/v1/devices/" + String(DEVICE_ID) + "/commands/pending";
 
     HTTPClient http;
     http.begin(url);
@@ -812,14 +761,14 @@ void fetchPendingCommands() {
 
     JsonArray commands = cmdDoc.as<JsonArray>();
     for (JsonObject cmd : commands) {
-        const char* action    = cmd["action"]     | "";
+        const char* action    = cmd["command_type"] | "";
         const char* commandId = cmd["command_id"] | "";
         bool success = true;
         String ackMsg = "OK";
 
         Serial.printf("[CMD] Executing: %s  id=%s\n", action, commandId);
 
-        if (strcmp(action, "pump_on") == 0) {
+        if (strcmp(action, "PUMP_ON") == 0) {
             if (g_mode == OperatingMode::MANUAL) {
                 setPump(true, "Backend command: pump_on");
             } else {
@@ -827,7 +776,7 @@ void fetchPendingCommands() {
                 ackMsg  = "Cannot execute pump_on in AUTO mode";
             }
 
-        } else if (strcmp(action, "pump_off") == 0) {
+        } else if (strcmp(action, "PUMP_OFF") == 0) {
             if (g_mode == OperatingMode::MANUAL) {
                 setPump(false, "Backend command: pump_off");
             } else {
@@ -835,11 +784,11 @@ void fetchPendingCommands() {
                 ackMsg  = "Cannot execute pump_off in AUTO mode";
             }
 
-        } else if (strcmp(action, "set_mode_auto") == 0) {
+        } else if (strcmp(action, "SET_MODE_AUTO") == 0) {
             g_mode = OperatingMode::AUTO;
             Serial.println(F("[CMD] Switched to AUTO mode"));
 
-        } else if (strcmp(action, "set_mode_manual") == 0) {
+        } else if (strcmp(action, "SET_MODE_MANUAL") == 0) {
             g_mode = OperatingMode::MANUAL;
             setPump(false, "Mode switched to MANUAL – pump defaulted OFF");
             Serial.println(F("[CMD] Switched to MANUAL mode"));
@@ -884,15 +833,13 @@ void acknowledgeCommand(const String& commandId,
                         bool          success,
                         const String& msg) {
     StaticJsonDocument<256> ackDoc;
-    ackDoc["command_id"] = commandId;
-    ackDoc["device_id"]  = DEVICE_ID;
-    ackDoc["success"]    = success;
-    ackDoc["message"]    = msg;
+    ackDoc["device_reported_state"] = success ? msg : String("ERROR: ") + msg;
 
     String payload;
     serializeJson(ackDoc, payload);
 
-    String url = String(BACKEND_URL) + "/api/v1/commands/acknowledge";
+    String url = String(BACKEND_URL) + "/api/v1/devices/" + String(DEVICE_ID) +
+                 "/commands/" + commandId + "/ack";
     HTTPClient http;
     http.begin(url);
     http.addHeader("Content-Type",  "application/json");
@@ -904,6 +851,19 @@ void acknowledgeCommand(const String& commandId,
     Serial.printf("[ACK] command_id=%s  success=%s  HTTP=%d\n",
                   commandId.c_str(), success ? "true" : "false", code);
     http.end();
+}
+
+String getTimestamp() {
+    time_t now = time(nullptr);
+    if (now < 1600000000) {
+        return "2024-01-01T00:00:00Z";
+    }
+
+    struct tm utc;
+    gmtime_r(&now, &utc);
+    char timestamp[25];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    return String(timestamp);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

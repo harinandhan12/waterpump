@@ -32,7 +32,7 @@ Receive a sensor snapshot from the ESP32 device.
 ```json
 {
   "device_id": "esp32-water-controller-01",
-  "timestamp": "uptime+3720.500s",
+  "timestamp": "2024-01-15T14:32:10Z",
   "tank_distance_cm": 12.5,
   "tank_level_percent": 62.5,
   "flow_rate_lpm": 8.4,
@@ -69,7 +69,7 @@ curl -X POST http://localhost:8000/api/v1/telemetry \
   -H "X-API-Key: change-me-device-key-123" \
   -d '{
     "device_id": "esp32-water-controller-01",
-    "timestamp": "uptime+100.000s",
+    "timestamp": "2024-01-15T14:32:10Z",
     "tank_distance_cm": 15.0,
     "tank_level_percent": 50.0,
     "flow_rate_lpm": 6.0,
@@ -168,75 +168,64 @@ curl "http://localhost:8000/api/v1/telemetry/history?limit=50&since=2024-01-15T0
 
 ---
 
-### 4. `POST /api/v1/commands`
+### 4. `POST /api/v1/devices/{device_id}/commands`
 Queue a command for the ESP32 to execute.
 
 **Auth:** Frontend token
 
 **Request Body:**
 ```json
-{
-  "device_id": "esp32-water-controller-01",
-  "action": "pump_on"
-}
+{"command_type": "PUMP_ON"}
 ```
 
-**Supported `action` values:**
+**Supported `command_type` values:**
 
 | Action | Description | Required Mode |
 |---|---|---|
-| `pump_on` | Turn pump ON | `MANUAL` |
-| `pump_off` | Turn pump OFF | `MANUAL` |
-| `set_mode_auto` | Switch controller to AUTO mode | any |
-| `set_mode_manual` | Switch controller to MANUAL mode | any |
-| `reset_fault` | Clear FAULT state, return to IDLE | `FAULT` state |
-| `reboot` | Software reset of ESP32 | any |
+| `PUMP_ON` | Turn pump ON | `MANUAL` |
+| `PUMP_OFF` | Turn pump OFF | `MANUAL` |
+| `SET_MODE_AUTO` | Switch controller to AUTO mode | any |
+| `SET_MODE_MANUAL` | Switch controller to MANUAL mode | any |
 
 **Response `201 Created`:**
 ```json
 {
-  "command_id": "cmd-7f3a1b2c",
-  "action": "pump_on",
-  "status": "PENDING",
-  "created_at": "2024-01-15T14:35:00Z"
+  "command_id": "generated-uuid",
+  "device_id": "esp32-water-controller-01",
+  "command_type": "PUMP_ON",
+  "acknowledged": false
 }
 ```
 
 **Example – switch to manual and turn pump on:**
 ```bash
 # 1. Switch to MANUAL mode
-curl -X POST http://localhost:8000/api/v1/commands \
+curl -X POST http://localhost:8000/api/v1/devices/esp32-water-controller-01/commands \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer change-me-frontend-token-456" \
-  -d '{"device_id": "esp32-water-controller-01", "action": "set_mode_manual"}'
+  -d '{"command_type": "SET_MODE_MANUAL"}'
 
 # 2. Turn pump ON
-curl -X POST http://localhost:8000/api/v1/commands \
+curl -X POST http://localhost:8000/api/v1/devices/esp32-water-controller-01/commands \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer change-me-frontend-token-456" \
-  -d '{"device_id": "esp32-water-controller-01", "action": "pump_on"}'
+  -d '{"command_type": "PUMP_ON"}'
 ```
 
 ---
 
-### 5. `GET /api/v1/commands/pending`
+### 5. `GET /api/v1/devices/{device_id}/commands/pending`
 Fetch unacknowledged commands for a device. Called by the ESP32.
 
 **Auth:** Device API key
-
-**Query Parameters:**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `device_id` | string | yes | Device identifier |
 
 **Response `200 OK`:**
 ```json
 [
   {
-    "command_id": "cmd-7f3a1b2c",
-    "action": "pump_on",
-    "created_at": "2024-01-15T14:35:00Z"
+    "command_id": "generated-uuid",
+    "command_type": "PUMP_ON",
+    "acknowledged": false
   }
 ]
 ```
@@ -245,45 +234,33 @@ Returns `[]` when no commands are pending.
 
 **Example:**
 ```bash
-curl "http://localhost:8000/api/v1/commands/pending?device_id=esp32-water-controller-01" \
+curl "http://localhost:8000/api/v1/devices/esp32-water-controller-01/commands/pending" \
   -H "X-API-Key: change-me-device-key-123"
 ```
 
 ---
 
-### 6. `POST /api/v1/commands/acknowledge`
+### 6. `POST /api/v1/devices/{device_id}/commands/{command_id}/ack`
 Acknowledge command execution result. Called by the ESP32.
 
 **Auth:** Device API key
 
 **Request Body:**
 ```json
-{
-  "command_id": "cmd-7f3a1b2c",
-  "device_id": "esp32-water-controller-01",
-  "success": true,
-  "message": "OK"
-}
+{"device_reported_state": "PUMP_ON"}
 ```
 
 **Response `200 OK`:**
 ```json
-{
-  "status": "acknowledged"
-}
+{"acknowledged": true}
 ```
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/commands/acknowledge \
+curl -X POST http://localhost:8000/api/v1/devices/esp32-water-controller-01/commands/generated-uuid/ack \
   -H "Content-Type: application/json" \
   -H "X-API-Key: change-me-device-key-123" \
-  -d '{
-    "command_id": "cmd-7f3a1b2c",
-    "device_id": "esp32-water-controller-01",
-    "success": true,
-    "message": "OK"
-  }'
+  -d '{"device_reported_state": "PUMP_ON"}'
 ```
 
 ---

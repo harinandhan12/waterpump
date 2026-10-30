@@ -216,8 +216,8 @@ See [docs/api.md](docs/api.md) for the complete REST + WebSocket reference.
 | `GET /api/v1/status` | Frontend token | Latest device state |
 | `GET /api/v1/telemetry/history` | Frontend token | Historical readings |
 | `POST /api/v1/commands` | Frontend token | Queue a pump command |
-| `GET /api/v1/commands/pending` | Device key | ESP32 fetches pending commands |
-| `POST /api/v1/commands/acknowledge` | Device key | ESP32 ACKs command result |
+| `GET /api/v1/devices/{device_id}/commands/pending` | Device key | ESP32 fetches pending commands |
+| `POST /api/v1/devices/{device_id}/commands/{command_id}/ack` | Device key | ESP32 ACKs command result |
 | `GET /api/v1/faults` | Frontend token | Fault history |
 | `GET /api/v1/health` | None | Backend health check |
 | `WS /ws/dashboard` | Token in query | Real-time telemetry push |

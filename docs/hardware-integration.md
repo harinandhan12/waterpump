@@ -38,7 +38,7 @@
 | `FLOW_SENSOR_PIN` | GPIO 19 | Input + Interrupt | YF-S201 pulse output; use `INPUT_PULLUP` |
 | `PRESSURE_PIN` | GPIO 34 | ADC Input | ADC1 channel 6; input-only pin |
 | `CURRENT_PIN` | GPIO 35 | ADC Input | ADC1 channel 7; input-only pin |
-| `PUMP_RELAY_PIN` | GPIO 26 | Output | Active HIGH; drive relay IN pin |
+| `PUMP_RELAY_PIN` | GPIO 2 | Output | Active HIGH; drive relay IN pin |
 | GND | GND | — | Common ground for all sensors |
 | 3V3 | 3.3 V | Power out | ACS712 VCC (module has own regulator) |
 | VIN / 5V | 5 V | Power out | HC-SR04 VCC, YF-S201 VCC |
@@ -85,11 +85,11 @@
  │IP-  ────►┼── Pump live wire OUT                                 │
  └──────────┘       │                                              │
                     │                                              │
- Relay Module       │  GPIO26 ─── IN (control)                    │
+ Relay Module       │  GPIO2  ─── IN (control)                    │
  ┌──────────┐       │  5V ──────── VCC                             │
  │VCC  ◄────┼──5V   │  GND ─────── GND                            │
  │GND  ◄────┼──GND  │                                              │
- │IN   ◄────┼──────── GPIO26                                       │
+ │IN   ◄────┼──────── GPIO2                                        │
  │COM  ◄────┼── Pump supply +                                      │
  │NO   ────►┼── Pump + terminal                                    │
  └──────────┘       │                                              │
@@ -125,6 +125,7 @@ Install via Arduino IDE Library Manager (Tools → Manage Libraries) or
 |---|---|---|
 | ESP32 Arduino Core | ≥ 2.0.x | Board manager: `esp32 by Espressif Systems` |
 | ArduinoJson | 6.x (NOT 7.x) | `ArduinoJson` |
+| NewPing | Current | `NewPing` |
 | WiFi | Built-in (ESP32 core) | — |
 | HTTPClient | Built-in (ESP32 core) | — |
 
@@ -136,6 +137,7 @@ board = esp32dev
 framework = arduino
 lib_deps =
     bblanchon/ArduinoJson@^6.21.3
+    teckel12/NewPing
 ```
 
 ---

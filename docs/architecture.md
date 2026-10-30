@@ -43,8 +43,8 @@
 │  │  FastAPI (Python 3.11)                                             │ │
 │  │                                                                    │ │
 │  │  POST /api/v1/telemetry         (from ESP32 every 5 s)            │ │
-│  │  GET  /api/v1/commands/pending  (polled by ESP32 every 10 s)      │ │
-│  │  POST /api/v1/commands/acknowledge                                 │ │
+│  │  GET  /api/v1/devices/{id}/commands/pending (ESP32 every 10 s)   │ │
+│  │  POST /api/v1/devices/{id}/commands/{cmd}/ack                    │ │
 │  │  GET  /api/v1/status            (frontend dashboard)              │ │
 │  │  POST /api/v1/commands          (frontend issues commands)        │ │
 │  │  WS   /ws/dashboard             (real-time push to browser)       │ │
@@ -125,9 +125,9 @@ Tables:
 
 [Browser] ──POST /api/v1/commands──► [Backend] ──INSERT (PENDING)──► [DB]
                                          │
-[ESP32] ──GET /api/v1/commands/pending──► [Backend] ──SELECT──► ESP32 executes
+[ESP32] ──GET /api/v1/devices/{id}/commands/pending──► [Backend] ──SELECT──► ESP32 executes
                                          │
-[ESP32] ──POST /api/v1/commands/acknowledge──► [Backend] ──UPDATE status──► [DB]
+[ESP32] ──POST /api/v1/devices/{id}/commands/{cmd}/ack──► [Backend] ──UPDATE status──► [DB]
 ```
 
 ### Telemetry Cadence
